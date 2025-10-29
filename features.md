@@ -1,0 +1,17 @@
+# Features to Implement
+- [x] Escaping
+  - `\*` or `\+` (allows you to match literal metacharacters).
+- [x] Character Classes
+  - Basic: `[abc]` (matches 'a', 'b', or 'c')
+  - Ranges: `[a-z0-9]` (matches 'a' through 'z' or '0' through '9')
+  - Negated: `[^d]` (matches any character except 'a')
+- [x] Shorthand Classes
+  - `\d` (short for `[0-9]`)
+  - `\w` (short for `[a-zA-Z0-9_]`)
+  - `\s` (short for `[ \t\n\r\f]` and other whitespace)
+  - `\D`, `\W`, `\S` (negated versions of `\d`, `\w`, `\s` respectively)
+- [ ] Named Capture Groups
+  - `(?<NAME>...)` (captures matches within group)
+- [ ] Counted Repetition: `{n,m}`
+  - `a{3}` is short for `aaa`
+  - `a{2,4}` is short for `aa|aaa|aaaa`

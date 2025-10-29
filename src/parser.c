@@ -43,6 +43,17 @@ WildcardNode* create_wildcard_node() {
     return node;
 }
 
+CharClassNode* create_char_class_node(bool negated) {
+    CharClassNode* node = malloc(sizeof(CharClassNode));
+    node->base.type = NODE_CHAR_CLASS;
+    node->negated = negated;
+    // Initialize all characters to false (not in set)
+    for (int i = 0; i < 256; i++) {
+        node->char_set[i] = false;
+    }
+    return node;
+}
+
 AstNode* parse_alternation(ParserState *state) {
     AstNode *left = parse_concatenation(state);
 
@@ -84,8 +95,141 @@ AstNode* parse_quantifier(ParserState *state) {
     return child;
 }
 
+AstNode* parse_char_class(ParserState *state) {
+    // We're at the opening '['
+    state->index++; // consume '['
+    
+    bool negated = false;
+    if (state->input[state->index] == '^') {
+        negated = true;
+        state->index++; // consume '^'
+    }
+    
+    CharClassNode* node = create_char_class_node(negated);
+    
+    // Parse characters until we hit ']'
+    while (state->input[state->index] != '\0' && state->input[state->index] != ']') {
+        char current = state->input[state->index];
+        
+        // Handle escape sequences within character class
+        if (current == '\\') {
+            state->index++; // consume backslash
+            if (state->input[state->index] == '\0') {
+                fprintf(stderr, "parse_char_class  Error: unexpected end of input after backslash\n");
+                free(node);
+                exit(1);
+            }
+            current = state->input[state->index];
+            node->char_set[(unsigned char)current] = true;
+            state->index++;
+        }
+        // Check for range (e.g., a-z)
+        else if (state->input[state->index + 1] == '-' && 
+                 state->input[state->index + 2] != ']' && 
+                 state->input[state->index + 2] != '\0') {
+            char start = current;
+            state->index += 2; // skip current char and '-'
+            char end = state->input[state->index];
+            
+            if (end == '\\') {
+                state->index++; // consume backslash
+                end = state->input[state->index];
+            }
+            
+            if (start > end) {
+                fprintf(stderr, "parse_char_class  Error: invalid range %c-%c\n", start, end);
+                free(node);
+                exit(1);
+            }
+            
+            // Add all characters in the range
+            for (int c = start; c <= end; c++) {
+                node->char_set[c] = true;
+            }
+            state->index++;
+        }
+        // Regular character
+        else {
+            node->char_set[(unsigned char)current] = true;
+            state->index++;
+        }
+    }
+    
+    if (state->input[state->index] != ']') {
+        fprintf(stderr, "parse_char_class  Error: unmatched '['\n");
+        free(node);
+        exit(1);
+    }
+    
+    state->index++; // consume ']'
+    
+    return (AstNode*)node;
+}
+
 AstNode* parse_atom(ParserState *state) {
     char c = state->input[state->index];
+
+    // Handle escape sequences
+    if (c == '\\') {
+        state->index++; // consume backslash
+        char escaped_char = state->input[state->index];
+        
+        if (escaped_char == '\0') {
+            fprintf(stderr, "parse_atom  Error: unexpected end of input after backslash at position %d\n", state->index - 1);
+            exit(1);
+        }
+        
+        // Check for shorthand character classes
+        if (escaped_char == 'd' || escaped_char == 'D') {
+            // \d matches [0-9], \D matches [^0-9]
+            state->index++; // consume 'd' or 'D'
+            bool negated = (escaped_char == 'D');
+            CharClassNode* node = create_char_class_node(negated);
+            for (int i = '0'; i <= '9'; i++) {
+                node->char_set[i] = true;
+            }
+            return (AstNode*)node;
+        }
+        else if (escaped_char == 'w' || escaped_char == 'W') {
+            // \w matches [a-zA-Z0-9_], \W matches [^a-zA-Z0-9_]
+            state->index++; // consume 'w' or 'W'
+            bool negated = (escaped_char == 'W');
+            CharClassNode* node = create_char_class_node(negated);
+            for (int i = 'a'; i <= 'z'; i++) {
+                node->char_set[i] = true;
+            }
+            for (int i = 'A'; i <= 'Z'; i++) {
+                node->char_set[i] = true;
+            }
+            for (int i = '0'; i <= '9'; i++) {
+                node->char_set[i] = true;
+            }
+            node->char_set['_'] = true;
+            return (AstNode*)node;
+        }
+        else if (escaped_char == 's' || escaped_char == 'S') {
+            // \s matches whitespace [ \t\n\r\f\v], \S matches [^ \t\n\r\f\v]
+            state->index++; // consume 's' or 'S'
+            bool negated = (escaped_char == 'S');
+            CharClassNode* node = create_char_class_node(negated);
+            node->char_set[' '] = true;   // space
+            node->char_set['\t'] = true;  // tab
+            node->char_set['\n'] = true;  // newline
+            node->char_set['\r'] = true;  // carriage return
+            node->char_set['\f'] = true;  // form feed
+            node->char_set['\v'] = true;  // vertical tab
+            return (AstNode*)node;
+        }
+        
+        // The escaped character is treated as a literal
+        state->index++; // consume the escaped character
+        return (AstNode*)create_literal_node(escaped_char);
+    }
+
+    // Handle character classes
+    if (c == '[') {
+        return parse_char_class(state);
+    }
 
     if (c == '(') {
         state->index++;
@@ -103,7 +247,7 @@ AstNode* parse_atom(ParserState *state) {
         state->index++;
         return (AstNode*)create_wildcard_node();
     }
-    if(c == '*' || c == '+' || c == '?' || c == '|' || c == ')' || c == '\0') {
+    if(c == '*' || c == '+' || c == '?' || c == '|' || c == ')' || c == ']' || c == '\0') {
         fprintf(stderr, "parse_atom  Error: unexpected character '%c' at position %d\n", c, state->index);
         exit(1);
     }
@@ -209,6 +353,8 @@ void free_ast(AstNode *node) {
         }
         case NODE_WILDCARD:
             break;
+        case NODE_CHAR_CLASS:
+            break;
     }
 
     free(node);
@@ -240,6 +386,24 @@ static void print_ast_recursive(AstNode *node, char *prefix, bool is_last) {
         case NODE_WILDCARD:
             printf("WILDCARD(.)\n");
             break;
+        case NODE_CHAR_CLASS: {
+            CharClassNode* cc_node = (CharClassNode*)node;
+            printf("CHAR_CLASS%s[", cc_node->negated ? "(negated)" : "");
+            bool first = true;
+            for (int i = 0; i < 256; i++) {
+                if (cc_node->char_set[i]) {
+                    if (!first) printf(",");
+                    if (i >= 32 && i < 127) {
+                        printf("%c", i);
+                    } else {
+                        printf("\\x%02x", i);
+                    }
+                    first = false;
+                }
+            }
+            printf("]\n");
+            break;
+        }
     }
 
     // 2. Prepare the prefix for the children
@@ -251,6 +415,7 @@ static void print_ast_recursive(AstNode *node, char *prefix, bool is_last) {
     switch (node->type) {
         case NODE_WILDCARD:
         case NODE_LITERAL:
+        case NODE_CHAR_CLASS:
             // No children
             break;
         case NODE_CONCAT:

@@ -29,6 +29,8 @@ static Transition* create_transition(char symbol, NfaState *to) {
     }
     trans->symbol = symbol;
     trans->to = to;
+    trans->char_class_set = NULL;
+    trans->char_class_negated = false;
     return trans;
 }
 
@@ -50,6 +52,33 @@ NfaFragment create_wildcard_fragment(unsigned long *next_state_id) {
     NfaState *start_state = create_state(false, next_state_id);
 
     start_state->out1 = create_transition(ANY_CHAR, accept_state);
+
+    NfaFragment fragment;
+    fragment.start = start_state;
+    fragment.accept = accept_state;
+
+    return fragment;
+}
+
+NfaFragment create_char_class_fragment(bool negated, bool char_set[256], unsigned long *next_state_id) {
+    NfaState *accept_state = create_state(true, next_state_id);
+    NfaState *start_state = create_state(false, next_state_id);
+
+    Transition *trans = create_transition(CHAR_CLASS, accept_state);
+    
+    // Allocate and copy the character set
+    trans->char_class_set = malloc(256 * sizeof(bool));
+    if (trans->char_class_set == NULL) {
+        fprintf(stderr, "create_char_class_fragment  Error: failed to allocate char_class_set\n");
+        exit(1);
+    }
+    
+    for (int i = 0; i < 256; i++) {
+        trans->char_class_set[i] = char_set[i];
+    }
+    trans->char_class_negated = negated;
+    
+    start_state->out1 = trans;
 
     NfaFragment fragment;
     fragment.start = start_state;
@@ -196,6 +225,11 @@ static NfaFragment recursive_compile_ast(AstNode *node, unsigned long *next_stat
             frag = create_wildcard_fragment(next_state_id);
             break;
         }
+        case NODE_CHAR_CLASS: {
+            CharClassNode *cc_node = (CharClassNode *)node;
+            frag = create_char_class_fragment(cc_node->negated, cc_node->char_set, next_state_id);
+            break;
+        }
         default:
             frag = create_literal_fragment('\0', next_state_id);
             break;
@@ -268,11 +302,19 @@ void free_nfa(NfaState *start) {
             if (state->out1->to != NULL) {
                 stack[stack_size++] = state->out1->to;
             }
+            // Free character class set if it exists
+            if (state->out1->symbol == CHAR_CLASS && state->out1->char_class_set != NULL) {
+                free(state->out1->char_class_set);
+            }
             free(state->out1);
         }
         if (state->out2 != NULL) {
             if (state->out2->to != NULL) {
                 stack[stack_size++] = state->out2->to;
+            }
+            // Free character class set if it exists
+            if (state->out2->symbol == CHAR_CLASS && state->out2->char_class_set != NULL) {
+                free(state->out2->char_class_set);
             }
             free(state->out2);
         }
@@ -343,6 +385,23 @@ static void print_nfa_recursive(NfaState *state, bool **visited_ptr, size_t *all
         printf("  -> ");
         if (state->out1->symbol == EPSILON) {
             printf("ε");
+        } else if (state->out1->symbol == ANY_CHAR) {
+            printf(".");
+        } else if (state->out1->symbol == CHAR_CLASS) {
+            printf("[%s", state->out1->char_class_negated ? "^" : "");
+            bool first = true;
+            for (int i = 0; i < 256; i++) {
+                if (state->out1->char_class_set[i]) {
+                    if (!first) printf(",");
+                    if (i >= 32 && i < 127) {
+                        printf("%c", i);
+                    } else {
+                        printf("\\x%02x", i);
+                    }
+                    first = false;
+                }
+            }
+            printf("]");
         } else {
             printf("'%c'", state->out1->symbol);
         }
@@ -353,6 +412,23 @@ static void print_nfa_recursive(NfaState *state, bool **visited_ptr, size_t *all
         printf("  -> ");
         if (state->out2->symbol == EPSILON) {
             printf("ε");
+        } else if (state->out2->symbol == ANY_CHAR) {
+            printf(".");
+        } else if (state->out2->symbol == CHAR_CLASS) {
+            printf("[%s", state->out2->char_class_negated ? "^" : "");
+            bool first = true;
+            for (int i = 0; i < 256; i++) {
+                if (state->out2->char_class_set[i]) {
+                    if (!first) printf(",");
+                    if (i >= 32 && i < 127) {
+                        printf("%c", i);
+                    } else {
+                        printf("\\x%02x", i);
+                    }
+                    first = false;
+                }
+            }
+            printf("]");
         } else {
             printf("'%c'", state->out2->symbol);
         }

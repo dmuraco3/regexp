@@ -131,11 +131,43 @@ bool match(NfaFragment fragment, const char *input) {
         // Find states directly reachable on the current character
         for (size_t j = 0; j < current_states.count; ++j) {
             NfaState *s = current_states.states[j];
-            if (s->out1 && (s->out1->symbol == current_char || s->out1->symbol == ANY_CHAR)) {
-                add_state(&temp_reachable, s->out1->to);
+            
+            // Check out1 transition
+            if (s->out1) {
+                bool matches = false;
+                if (s->out1->symbol == current_char) {
+                    matches = true;
+                } else if (s->out1->symbol == ANY_CHAR) {
+                    matches = true;
+                } else if (s->out1->symbol == CHAR_CLASS && s->out1->char_class_set != NULL) {
+                    // Check if current_char is in the character class
+                    bool in_set = s->out1->char_class_set[(unsigned char)current_char];
+                    // If negated, invert the match
+                    matches = s->out1->char_class_negated ? !in_set : in_set;
+                }
+                
+                if (matches) {
+                    add_state(&temp_reachable, s->out1->to);
+                }
             }
-            if (s->out2 && (s->out2->symbol == current_char || s->out2->symbol == ANY_CHAR)) {
-                 add_state(&temp_reachable, s->out2->to);
+            
+            // Check out2 transition
+            if (s->out2) {
+                bool matches = false;
+                if (s->out2->symbol == current_char) {
+                    matches = true;
+                } else if (s->out2->symbol == ANY_CHAR) {
+                    matches = true;
+                } else if (s->out2->symbol == CHAR_CLASS && s->out2->char_class_set != NULL) {
+                    // Check if current_char is in the character class
+                    bool in_set = s->out2->char_class_set[(unsigned char)current_char];
+                    // If negated, invert the match
+                    matches = s->out2->char_class_negated ? !in_set : in_set;
+                }
+                
+                if (matches) {
+                    add_state(&temp_reachable, s->out2->to);
+                }
             }
         }
 

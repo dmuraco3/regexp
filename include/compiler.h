@@ -11,11 +11,15 @@
 
 #define ANY_CHAR (-1)
 #define EPSILON 0
+#define CHAR_CLASS (-2)
 
 
 typedef struct Transition {
     char symbol;
     struct NfaState *to;
+    // For character classes: if symbol == CHAR_CLASS, use these fields
+    bool *char_class_set;     // Pointer to the character set bitmap
+    bool char_class_negated;  // Whether the class is negated
 } Transition;
 
 typedef struct NfaState {
@@ -34,6 +38,8 @@ typedef struct NfaFragment {
 NfaFragment create_literal_fragment(char c, unsigned long *next_state_id);
 
 NfaFragment create_wildcard_fragment(unsigned long *next_state_id);
+
+NfaFragment create_char_class_fragment(bool negated, bool char_set[256], unsigned long *next_state_id);
 
 NfaFragment create_concat_fragment(NfaFragment frag1, NfaFragment frag2);
 
