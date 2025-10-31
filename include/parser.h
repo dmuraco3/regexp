@@ -9,7 +9,8 @@ typedef enum {
     NODE_ALTERNATION,
     NODE_QUANTIFIER,
     NODE_WILDCARD,
-    NODE_CHAR_CLASS
+    NODE_CHAR_CLASS,
+    NODE_CAPTURE_GROUP
 } NodeType;
 
 typedef struct AstNode {
@@ -49,12 +50,19 @@ typedef struct {
     bool char_set[256];     // bitmap of characters in the class
 } CharClassNode;
 
+typedef struct {
+    AstNode base;
+    char *name;             // Group name (NULL for numbered groups)
+    AstNode *child;         // The expression to capture
+} CaptureGroupNode;
+
 LiteralNode* create_literal_node(char value);
 AlternationNode* create_alternation_node(AstNode *left, AstNode *right);
 ConcatNode* create_concat_node(AstNode *left, AstNode *right);
 QuantifierNode* create_quantifier_node(AstNode *child, char quantifier);
 WildcardNode* create_wildcard_node();
 CharClassNode* create_char_class_node(bool negated);
+CaptureGroupNode* create_capture_group_node(const char *name, AstNode *child);
 
 
 typedef struct {

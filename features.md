@@ -10,8 +10,8 @@
   - `\w` (short for `[a-zA-Z0-9_]`)
   - `\s` (short for `[ \t\n\r\f]` and other whitespace)
   - `\D`, `\W`, `\S` (negated versions of `\d`, `\w`, `\s` respectively)
-- [ ] Named Capture Groups
-  - `(?<NAME>...)` (captures matches within group)
+- [x] Named Capture Groups
+  - `(?<NAME>...)` (captures matches within `<NAME>` group)
 - [ ] Counted Repetition: `{n,m}`
   - `a{3}` is short for `aaa`
   - `a{2,4}` is short for `aa|aaa|aaaa`

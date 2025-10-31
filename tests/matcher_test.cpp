@@ -404,4 +404,59 @@ TEST(Matcher, MatchesEmailLikePattern) {
     free_ast(tree);
 }
 
+TEST(Matcher, CapturesSimpleNamedGroup) {
+    AstNode* tree = parse("^(?<word>\\w+)$");
+    ASSERT_NE(tree, nullptr);
+    NfaFragment nfa = compile_ast(tree);
+    ASSERT_NE(nfa.start, nullptr);
+
+    MatchResult result = match_with_captures(nfa, "hello");
+    EXPECT_TRUE(result.matched);
+    EXPECT_EQ(result.num_groups, 1);
+    
+    if (result.num_groups > 0) {
+        EXPECT_STREQ(result.groups[0].name, "word");
+        EXPECT_STREQ(result.groups[0].value, "hello");
+        EXPECT_EQ(result.groups[0].start, 0);
+        EXPECT_EQ(result.groups[0].end, 5);
+    }
+    
+    free_match_result(&result);
+    free_nfa(nfa.start);
+    free_ast(tree);
+}
+
+TEST(Matcher, CapturesMultipleNamedGroups) {
+    AstNode* tree = parse("^(?<user>\\w+)@(?<domain>\\w+)\\.(?<tld>\\w+)$");
+    ASSERT_NE(tree, nullptr);
+    NfaFragment nfa = compile_ast(tree);
+    ASSERT_NE(nfa.start, nullptr);
+
+    MatchResult result = match_with_captures(nfa, "test@example.com");
+    EXPECT_TRUE(result.matched);
+    EXPECT_EQ(result.num_groups, 3);
+    
+    if (result.num_groups >= 3) {
+        // Find captures by name
+        CaptureGroup *user = nullptr, *domain = nullptr, *tld = nullptr;
+        for (size_t i = 0; i < result.num_groups; i++) {
+            if (strcmp(result.groups[i].name, "user") == 0) user = &result.groups[i];
+            if (strcmp(result.groups[i].name, "domain") == 0) domain = &result.groups[i];
+            if (strcmp(result.groups[i].name, "tld") == 0) tld = &result.groups[i];
+        }
+        
+        ASSERT_NE(user, nullptr);
+        ASSERT_NE(domain, nullptr);
+        ASSERT_NE(tld, nullptr);
+        
+        EXPECT_STREQ(user->value, "test");
+        EXPECT_STREQ(domain->value, "example");
+        EXPECT_STREQ(tld->value, "com");
+    }
+    
+    free_match_result(&result);
+    free_nfa(nfa.start);
+    free_ast(tree);
+}
+
 

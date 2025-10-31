@@ -27,4 +27,21 @@ void epsilon_closure(NfaStateSet *initial_set, NfaStateSet *closure_set);
 
 bool match(NfaFragment fragment, const char *input);
 
+// Capture group support
+typedef struct {
+    char *name;          // Group name (NULL for numbered groups in future)
+    char *value;         // Matched text
+    int start;           // Start position in input
+    int end;             // End position in input
+} CaptureGroup;
+
+typedef struct {
+    bool matched;        // Whether the pattern matched
+    int num_groups;      // Number of capture groups
+    CaptureGroup *groups; // Array of captured groups
+} MatchResult;
+
+MatchResult match_with_captures(NfaFragment fragment, const char *input);
+void free_match_result(MatchResult *result);
+
 #endif //MATCHER_H

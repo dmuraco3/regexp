@@ -12,6 +12,8 @@
 #define ANY_CHAR (-1)
 #define EPSILON 0
 #define CHAR_CLASS (-2)
+#define CAPTURE_START (-3)
+#define CAPTURE_END (-4)
 
 
 typedef struct Transition {
@@ -20,6 +22,9 @@ typedef struct Transition {
     // For character classes: if symbol == CHAR_CLASS, use these fields
     bool *char_class_set;     // Pointer to the character set bitmap
     bool char_class_negated;  // Whether the class is negated
+    // For capture groups: if symbol == CAPTURE_START or CAPTURE_END
+    char *capture_name;       // Name of the capture group
+    int capture_id;           // Unique ID for the capture group
 } Transition;
 
 typedef struct NfaState {
@@ -40,6 +45,8 @@ NfaFragment create_literal_fragment(char c, unsigned long *next_state_id);
 NfaFragment create_wildcard_fragment(unsigned long *next_state_id);
 
 NfaFragment create_char_class_fragment(bool negated, bool char_set[256], unsigned long *next_state_id);
+
+NfaFragment create_capture_group_fragment(const char *name, int capture_id, NfaFragment child_frag, unsigned long *next_state_id);
 
 NfaFragment create_concat_fragment(NfaFragment frag1, NfaFragment frag2);
 

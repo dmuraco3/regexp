@@ -3,6 +3,7 @@
 //
 
 #include <stdlib.h>
+#include <string.h>
 #include "compiler.h"
 
 #include <stdio.h>
@@ -31,6 +32,8 @@ static Transition* create_transition(char symbol, NfaState *to) {
     trans->to = to;
     trans->char_class_set = NULL;
     trans->char_class_negated = false;
+    trans->capture_name = NULL;
+    trans->capture_id = -1;
     return trans;
 }
 
@@ -84,6 +87,35 @@ NfaFragment create_char_class_fragment(bool negated, bool char_set[256], unsigne
     fragment.start = start_state;
     fragment.accept = accept_state;
 
+    return fragment;
+}
+
+NfaFragment create_capture_group_fragment(const char *name, int capture_id, NfaFragment child_frag, unsigned long *next_state_id) {
+    // Create start and end markers for the capture group
+    NfaState *start_state = create_state(false, next_state_id);
+    NfaState *end_state = create_state(true, next_state_id);
+    
+    // Create CAPTURE_START transition
+    Transition *start_trans = create_transition(CAPTURE_START, child_frag.start);
+    if (name != NULL) {
+        start_trans->capture_name = strdup(name);
+    }
+    start_trans->capture_id = capture_id;
+    start_state->out1 = start_trans;
+    
+    // Create CAPTURE_END transition
+    child_frag.accept->is_accepting = false;
+    Transition *end_trans = create_transition(CAPTURE_END, end_state);
+    if (name != NULL) {
+        end_trans->capture_name = strdup(name);
+    }
+    end_trans->capture_id = capture_id;
+    child_frag.accept->out1 = end_trans;
+    
+    NfaFragment fragment;
+    fragment.start = start_state;
+    fragment.accept = end_state;
+    
     return fragment;
 }
 
@@ -230,6 +262,15 @@ static NfaFragment recursive_compile_ast(AstNode *node, unsigned long *next_stat
             frag = create_char_class_fragment(cc_node->negated, cc_node->char_set, next_state_id);
             break;
         }
+        case NODE_CAPTURE_GROUP: {
+            CaptureGroupNode *cg_node = (CaptureGroupNode *)node;
+            NfaFragment child_frag = recursive_compile_ast(cg_node->child, next_state_id);
+            // Use next_state_id as a unique capture ID
+            int capture_id = (int)(*next_state_id);
+            (*next_state_id)++;
+            frag = create_capture_group_fragment(cg_node->name, capture_id, child_frag, next_state_id);
+            break;
+        }
         default:
             frag = create_literal_fragment('\0', next_state_id);
             break;
@@ -306,6 +347,11 @@ void free_nfa(NfaState *start) {
             if (state->out1->symbol == CHAR_CLASS && state->out1->char_class_set != NULL) {
                 free(state->out1->char_class_set);
             }
+            // Free capture name if it exists
+            if ((state->out1->symbol == CAPTURE_START || state->out1->symbol == CAPTURE_END) 
+                && state->out1->capture_name != NULL) {
+                free(state->out1->capture_name);
+            }
             free(state->out1);
         }
         if (state->out2 != NULL) {
@@ -315,6 +361,11 @@ void free_nfa(NfaState *start) {
             // Free character class set if it exists
             if (state->out2->symbol == CHAR_CLASS && state->out2->char_class_set != NULL) {
                 free(state->out2->char_class_set);
+            }
+            // Free capture name if it exists
+            if ((state->out2->symbol == CAPTURE_START || state->out2->symbol == CAPTURE_END) 
+                && state->out2->capture_name != NULL) {
+                free(state->out2->capture_name);
             }
             free(state->out2);
         }
@@ -402,6 +453,14 @@ static void print_nfa_recursive(NfaState *state, bool **visited_ptr, size_t *all
                 }
             }
             printf("]");
+        } else if (state->out1->symbol == CAPTURE_START) {
+            printf("CAPTURE_START(id=%d, name='%s')", 
+                   state->out1->capture_id, 
+                   state->out1->capture_name ? state->out1->capture_name : "");
+        } else if (state->out1->symbol == CAPTURE_END) {
+            printf("CAPTURE_END(id=%d, name='%s')", 
+                   state->out1->capture_id, 
+                   state->out1->capture_name ? state->out1->capture_name : "");
         } else {
             printf("'%c'", state->out1->symbol);
         }
@@ -429,6 +488,14 @@ static void print_nfa_recursive(NfaState *state, bool **visited_ptr, size_t *all
                 }
             }
             printf("]");
+        } else if (state->out2->symbol == CAPTURE_START) {
+            printf("CAPTURE_START(id=%d, name='%s')", 
+                   state->out2->capture_id, 
+                   state->out2->capture_name ? state->out2->capture_name : "");
+        } else if (state->out2->symbol == CAPTURE_END) {
+            printf("CAPTURE_END(id=%d, name='%s')", 
+                   state->out2->capture_id, 
+                   state->out2->capture_name ? state->out2->capture_name : "");
         } else {
             printf("'%c'", state->out2->symbol);
         }

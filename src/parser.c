@@ -54,6 +54,18 @@ CharClassNode* create_char_class_node(bool negated) {
     return node;
 }
 
+CaptureGroupNode* create_capture_group_node(const char *name, AstNode *child) {
+    CaptureGroupNode* node = malloc(sizeof(CaptureGroupNode));
+    node->base.type = NODE_CAPTURE_GROUP;
+    node->child = child;
+    if (name != NULL) {
+        node->name = strdup(name);
+    } else {
+        node->name = NULL;
+    }
+    return node;
+}
+
 AstNode* parse_alternation(ParserState *state) {
     AstNode *left = parse_concatenation(state);
 
@@ -234,6 +246,50 @@ AstNode* parse_atom(ParserState *state) {
     if (c == '(') {
         state->index++;
 
+        // Check for named capture group: (?<name>...)
+        if (state->input[state->index] == '?' && state->input[state->index + 1] == '<') {
+            state->index += 2; // consume '?<'
+            
+            // Extract group name
+            int name_start = state->index;
+            while (state->input[state->index] != '\0' && state->input[state->index] != '>') {
+                state->index++;
+            }
+            
+            if (state->input[state->index] != '>') {
+                fprintf(stderr, "parse_atom  Error: unterminated capture group name\n");
+                exit(1);
+            }
+            
+            int name_len = state->index - name_start;
+            if (name_len == 0) {
+                fprintf(stderr, "parse_atom  Error: empty capture group name\n");
+                exit(1);
+            }
+            
+            char *name = malloc(name_len + 1);
+            strncpy(name, state->input + name_start, name_len);
+            name[name_len] = '\0';
+            
+            state->index++; // consume '>'
+            
+            // Parse the captured expression
+            AstNode *child = parse_alternation(state);
+            
+            if(state->input[state->index] != ')') {
+                fprintf(stderr, "parse_atom  Error: unmatched parenthesis in capture group\n");
+                free(name);
+                free_ast(child);
+                exit(1);
+            }
+            state->index++; // consume ')'
+            
+            CaptureGroupNode *capture_node = create_capture_group_node(name, child);
+            free(name); // create_capture_group_node makes its own copy
+            return (AstNode*)capture_node;
+        }
+
+        // Regular grouping (no capture)
         AstNode *node = parse_alternation(state);
 
         if(state->input[state->index] != ')') {
@@ -355,6 +411,14 @@ void free_ast(AstNode *node) {
             break;
         case NODE_CHAR_CLASS:
             break;
+        case NODE_CAPTURE_GROUP: {
+            CaptureGroupNode *cg_node = (CaptureGroupNode*)node;
+            if (cg_node->name != NULL) {
+                free(cg_node->name);
+            }
+            free_ast(cg_node->child);
+            break;
+        }
     }
 
     free(node);
@@ -404,12 +468,29 @@ static void print_ast_recursive(AstNode *node, char *prefix, bool is_last) {
             printf("]\n");
             break;
         }
+        case NODE_CAPTURE_GROUP: {
+            CaptureGroupNode* cg_node = (CaptureGroupNode*)node;
+            printf("CAPTURE_GROUP");
+            if (cg_node->name != NULL) {
+                printf("(<%s>)", cg_node->name);
+            }
+            printf("\n");
+            break;
+        }
     }
 
     // 2. Prepare the prefix for the children
-    char child_prefix[256]; // Buffer for the next level's prefix
-    strcpy(child_prefix, prefix);
-    strcat(child_prefix, is_last ? "    " : "│   "); // Add space or line based on if current node is last
+    char child_prefix[512]; // Buffer for the next level's prefix (increased size for deeply nested patterns)
+    size_t prefix_len = strlen(prefix);
+    
+    // Bounds checking to prevent buffer overflow
+    if (prefix_len + 4 >= sizeof(child_prefix)) {
+        // If we're too deep, just use the current prefix without adding more
+        strcpy(child_prefix, prefix);
+    } else {
+        strcpy(child_prefix, prefix);
+        strcat(child_prefix, is_last ? "    " : "│   "); // Add space or line based on if current node is last
+    }
 
     // 3. Recurse for children, correctly identifying the last child
     switch (node->type) {
@@ -418,6 +499,18 @@ static void print_ast_recursive(AstNode *node, char *prefix, bool is_last) {
         case NODE_CHAR_CLASS:
             // No children
             break;
+        case NODE_QUANTIFIER: {
+            // Quantifier has one child
+            QuantifierNode *quant_node = (QuantifierNode*)node;
+            print_ast_recursive(quant_node->child, child_prefix, true);
+            break;
+        }
+        case NODE_CAPTURE_GROUP: {
+            // Capture group has one child
+            CaptureGroupNode *cg_node = (CaptureGroupNode*)node;
+            print_ast_recursive(cg_node->child, child_prefix, true);
+            break;
+        }
         case NODE_CONCAT:
         case NODE_ALTERNATION: {
             // These nodes have two children (left and right)
@@ -426,13 +519,6 @@ static void print_ast_recursive(AstNode *node, char *prefix, bool is_last) {
             print_ast_recursive(bin_node->left, child_prefix, false);
             // The right child is always the last one
             print_ast_recursive(bin_node->right, child_prefix, true);
-            break;
-        }
-        case NODE_QUANTIFIER: {
-            // Quantifier nodes have only one child
-            QuantifierNode *q_node = (QuantifierNode*)node;
-            // The single child is always the last (and only) child
-            print_ast_recursive(q_node->child, child_prefix, true);
             break;
         }
     }
